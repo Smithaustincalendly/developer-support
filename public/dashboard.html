@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Calendly User Info</title>
+</head>
+<body>
+  <h1>Welcome!</h1>
+
+  <!-- ==============================
+       Section 1: Fetch User Info & Locations
+  =============================== -->
+
+  <!-- Button to fetch and display Calendly user info -->
+  <button id="fetchUser">Get My Calendly Info</button>
+  <pre id="output"></pre>
+
+  <!-- Button to fetch connected location options (e.g. Zoom, Teams, etc) -->
+  <button id="fetchLocations">Get Connected Location Options</button>
+  <ul id="location-list" style="margin-top: 1rem;"></ul>
+
+  <!-- ==============================
+       Section 2: Create Event Type Form
+  =============================== -->
+
+  <h3>Create New Event Type</h3>
+  <form id="create-event-form">
+    <!-- Required fields -->
+    <input type="text" id="event-name" placeholder="Event Name" required />
+    <input type="text" id="event-description" placeholder="Description" required />
+    <input type="number" id="event-duration" placeholder="Duration (mins)" required />
+
+    <!-- Optional: Multiple duration options -->
+    <input type="text" id="duration-options" placeholder="Duration Options (e.g. 15,30,60)" />
+
+    <!-- Toggle active/inactive event status -->
+    <label for="active">Active:</label>
+    <select id="active">
+      <option value="true">True</option>
+      <option value="false" selected>False</option>
+    </select>
+
+    <!-- Location configuration options -->
+    <label for="location-kind">Location Kind:</label>
+    <select id="location-kind">
+      <option value="ask_invitee">ask_invitee</option>
+      <option value="custom">custom</option>
+      <option value="google_conference">google_conference</option>
+      <option value="gotomeeting_conference">gotomeeting_conference</option>
+      <option value="inbound_call">inbound_call</option>
+      <option value="microsoft_teams_conference">microsoft_teams_conference</option>
+      <option value="outbound_call">outbound_call</option>
+      <option value="physical">physical</option>
+      <option value="webex_conference">webex_conference</option>
+      <option value="zoom_conference">zoom_conference</option>
+    </select>
+
+    <!-- Location detail fields -->
+    <input type="text" id="location" placeholder="Location" />
+    <input type="text" id="location-info" placeholder="Additional Info" />
+    <input type="text" id="phone-number" placeholder="Phone Number" />
+
+    <!-- UI customization: Color and locale -->
+    <label for="event-color">Color:</label>
+    <select id="event-color">
+      <option value="#ff4c04" selected>#ff4c04</option>
+    </select>
+
+    <label for="event-locale">Locale:</label>
+    <select id="event-locale">
+      <option value="de">de</option>
+      <option value="en" selected>en</option>
+      <option value="es">es</option>
+      <option value="fr">fr</option>
+      <option value="it">it</option>
+      <option value="nl">nl</option>
+      <option value="pt">pt</option>
+      <option value="uk">uk</option>
+    </select>
+
+    <button type="submit">Create Event Type</button>
+  </form>
+
+  <!-- Response message area for event creation -->
+  <p id="create-response"></p>
+
+  <!-- Navigation button to update existing event type -->
+  <button class="nav-button" onclick="window.location.href='update-et.html'">
+    Update your event type
+  </button>
+
+  <!-- ==============================
+       Section 3: JavaScript Logic
+  =============================== -->
+
+  <script>
+    let ownerUri = null;
+
+    // Get and store the user's URI on page load
+    async function getUserDetails() {
+      const res = await fetch('/me-from-store');
+      const data = await res.json();
+      ownerUri = data.resource.uri;
+    }
+
+    // Fetch user info and display it as JSON
+    document.getElementById('fetchUser').addEventListener('click', async () => {
+      const res = await fetch('/me-from-store');
+      const data = await res.json();
+      document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+    });
+
+    // Handle Create Event form submission
+    document.getElementById('create-event-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      // Ensure we have the owner URI
+      if (!ownerUri) {
+        await getUserDetails();
+      }
+
+      // Convert duration options string to array of numbers
+      const durationOptions = document.getElementById('duration-options').value
+        .split(',')
+        .map(str => parseInt(str.trim()))
+        .filter(n => !isNaN(n));
+
+      // Build location object based on selected kind
+      const kind = document.getElementById('location-kind').value;
+      const locationData = { kind };
+
+      // Add optional location fields depending on kind
+      if (["ask_invitee", "custom", "outbound_call", "inbound_call", "physical"].includes(kind)) {
+        const location = document.getElementById('location').value;
+        if (location) locationData.location = location;
+      }
+
+      if (["ask_invitee", "custom"].includes(kind)) {
+        const additionalInfo = document.getElementById('location-info').value;
+        const phone = document.getElementById('phone-number').value;
+        if (additionalInfo) locationData.additional_info = additionalInfo;
+        if (phone) locationData.phone_number = phone;
+      }
+
+      // Build payload for creating the event type
+      const body = {
+        active: document.getElementById('active').value === "true",
+        owner: ownerUri,
+        name: document.getElementById('event-name').value,
+        description: document.getElementById('event-description').value,
+        duration: parseInt(document.getElementById('event-duration').value),
+        duration_options: durationOptions,
+        locations: [locationData],
+        color: document.getElementById('event-color').value,
+        locale: document.getElementById('event-locale').value
+      };
+
+      // Send POST request to backend
+      const res = await fetch('/create-event-type', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const result = await res.json();
+
+      // Show success or error message
+      document.getElementById('create-response').innerText = res.ok
+        ? `Created: ${result.resource.name}`
+        : `Error: ${JSON.stringify(result)}`;
+    });
+
+    // Auto-load user info on page load
+    getUserDetails();
+  </script>
+
+  <!-- ==============================
+       Section 4: Fetch Connected Location Metadata
+  =============================== -->
+  <script>
+    document.getElementById('fetchLocations').addEventListener('click', async () => {
+      try {
+        // Get the current user's URI
+        const userRes = await fetch('/me-from-store');
+        const userData = await userRes.json();
+        const userUri = userData.resource.uri;
+
+        // Request all connected locations for the user
+        const res = await fetch(`/locations?user=${encodeURIComponent(userUri)}`);
+        const data = await res.json();
+
+        const list = document.getElementById('location-list');
+        list.innerHTML = '';
+
+        if (data.collection && data.collection.length > 0) {
+          data.collection.forEach(loc => {
+            const li = document.createElement('li');
+            const kind = loc.kind;
+            let message = '';
+
+            // Contextualize the kind of location
+            if ([
+              'zoom_conference', 'google_conference', 'microsoft_teams_conference',
+              'gotomeeting_conference', 'webex_conference'
+            ].includes(kind)) {
+              message = `Connected: ${loc.connected ? '✅ Yes' : '❌ No'}`;
+            } else if (kind === 'physical' || kind === 'custom') {
+              message = '📝 Accepts "location" and "additional_info" fields';
+            } else if (kind === 'ask_invitee') {
+              message = '👤 Invitee will be prompted to provide the location';
+            } else if (kind === 'inbound_call') {
+              message = '📞 Requires "phone_number" only';
+            } else if (kind === 'outbound_call') {
+              message = '📲 No additional fields allowed';
+            } else {
+              message = 'ℹ️ Unrecognized kind';
+            }
+
+            li.textContent = `Kind: ${kind} — ${message}`;
+            list.appendChild(li);
+          });
+        } else {
+          list.innerHTML = '<li>No connected locations found.</li>';
+        }
+      } catch (err) {
+        console.error('Failed to fetch locations:', err);
+        document.getElementById('location-list').innerHTML = '<li>Error fetching locations</li>';
+      }
+    });
+  </script>
+
+</body>
+</html>

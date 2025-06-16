@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Update Your Calendly Event Type</title>
+</head>
+<body>
+
+  <h1>Update Your Event Type</h1>
+
+  <!-- ==============================
+       Section 1: Load Existing Event Types with Pagination
+       Description: Buttons and logic to load a paginated list of event types
+  =============================== -->
+  <button id="load-event-types">Load My Event Types</button>
+  <button id="next-page" disabled>Next Page</button>
+  <button id="prev-page" disabled>Previous Page</button>
+
+  <div id="event-types-container"
+       style="margin-top: 1rem; max-height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 1rem;">
+  </div>
+
+  <!-- ==============================
+       Section 2: Update Event Type Form
+       Description: Form fields to update details of a specific Event Type
+  =============================== -->
+  <h3>Update an Existing Event Type</h3>
+  <form id="update-event-form">
+    <input type="text" id="event-uuid" placeholder="Event Type UUID (required)" required />
+    <input type="text" id="update-name" placeholder="Name (optional)" />
+    <input type="text" id="update-description" placeholder="Description (optional)" />
+    <input type="number" id="update-duration" placeholder="Duration (mins)" />
+    <input type="text" id="update-duration-options" placeholder="Duration Options (e.g. 15,30)" />
+    <input type="text" id="update-color" placeholder="Color (e.g. #00a2ff)" />
+    <input type="text" id="update-locale" placeholder="Locale (e.g. en, de)" />
+
+    <!-- Optional location update -->
+    <label for="update-location-kind">Location Kind (optional):</label>
+    <select id="update-location-kind">
+      <option value="">(none)</option>
+      <option value="ask_invitee">ask_invitee</option>
+      <option value="custom">custom</option>
+      <option value="google_conference">google_conference</option>
+      <option value="gotomeeting_conference">gotomeeting_conference</option>
+    </select>
+
+    <button type="submit">Submit Update</button>
+  </form>
+
+  <!-- Server response output -->
+  <div id="update-response" style="margin-top: 1rem; font-family: monospace;"></div>
+  
+  <!-- ==============================
+       Section 3: Availability Form
+       Description: Define and update weekly recurring availability blocks
+  =============================== -->
+  <h3>Update Availability for Event Type</h3>
+  <form id="update-availability-form">
+    <input type="text" id="availability-event-type-uri" placeholder="Full Event Type URI" required />
+    <input type="text" id="availability-timezone" placeholder="Timezone (e.g. America/Chicago)" required />
+
+    <!-- Day-specific input fields -->
+    <label>Sunday:</label>
+    <input type="text" id="sunday-from" placeholder="From (e.g. 08:30)" />
+    <input type="text" id="sunday-to" placeholder="To (e.g. 09:30)" />
+
+    <label>Monday:</label>
+    <input type="text" id="monday-from" placeholder="From" />
+    <input type="text" id="monday-to" placeholder="To" />
+
+    <label>Tuesday:</label>
+    <input type="text" id="tuesday-from" placeholder="From" />
+    <input type="text" id="tuesday-to" placeholder="To" />
+
+    <label>Wednesday:</label>
+    <input type="text" id="wednesday-from" placeholder="From" />
+    <input type="text" id="wednesday-to" placeholder="To" />
+
+    <label>Thursday:</label>
+    <input type="text" id="thursday-from" placeholder="From" />
+    <input type="text" id="thursday-to" placeholder="To" />
+
+    <label>Friday:</label>
+    <input type="text" id="friday-from" placeholder="From" />
+    <input type="text" id="friday-to" placeholder="To" />
+
+    <label>Saturday:</label>
+    <input type="text" id="saturday-from" placeholder="From" />
+    <input type="text" id="saturday-to" placeholder="To" />
+
+    <br />
+    <button type="submit">Update Availability</button>
+  </form>
+
+  <!-- Server response output -->
+  <div id="availability-response" style="margin-top: 1rem; font-family: monospace;"></div>
+
+  <!-- ==============================
+       Section 4: JavaScript Logic
+       Description: Handles fetch calls and form submissions
+  =============================== -->
+  <script>
+    let userUri = null;
+    let orgUri = null;
+    let currentPageToken = null;
+    let nextPageToken = null;
+    let prevPageToken = null;
+
+    // Fetch event types with optional pagination token
+    async function loadEventTypes(pageToken = null) {
+      const container = document.getElementById('event-types-container');
+      const nextBtn = document.getElementById('next-page');
+      const prevBtn = document.getElementById('prev-page');
+
+      if (!userUri || !orgUri) {
+        const userRes = await fetch('/me-from-store');
+        const userData = await userRes.json();
+        userUri = userData.resource.uri;
+        orgUri = userData.resource.current_organization;
+      }
+
+      const query = new URLSearchParams({
+        active: true,
+        organization: orgUri,
+        user: userUri,
+        count: 20
+      });
+
+      if (pageToken) {
+        query.append('page_token', pageToken);
+      }
+
+      const res = await fetch(`/list-event-types?${query.toString()}`);
+      const data = await res.json();
+
+      container.innerHTML = '';
+      if (data.collection?.length > 0) {
+        data.collection.forEach(event => {
+          const div = document.createElement('div');
+          div.style.marginBottom = '1rem';
+          div.innerHTML = `
+            <strong>${event.name}</strong><br>
+            <em>${event.description || 'No description'}</em><br>
+            Duration: ${event.duration} minutes<br>
+            URI: <code>${event.uri}</code>
+          `;
+          container.appendChild(div);
+        });
+      } else {
+        container.textContent = 'No event types found.';
+      }
+
+      currentPageToken = pageToken;
+      nextPageToken = data.pagination?.next_page_token || null;
+      prevPageToken = data.pagination?.previous_page_token || null;
+
+      nextBtn.disabled = !nextPageToken;
+      prevBtn.disabled = !prevPageToken;
+    }
+
+    document.getElementById('load-event-types').addEventListener('click', () => loadEventTypes());
+    document.getElementById('next-page').addEventListener('click', () => nextPageToken && loadEventTypes(nextPageToken));
+    document.getElementById('prev-page').addEventListener('click', () => prevPageToken && loadEventTypes(prevPageToken));
+
+    // Update event type submission logic
+    document.getElementById('update-event-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const uuid = document.getElementById('event-uuid').value.trim();
+      if (!uuid) return alert('UUID is required.');
+
+      const body = {};
+      const name = document.getElementById('update-name').value;
+      if (name) body.name = name;
+
+      const description = document.getElementById('update-description').value;
+      if (description) body.description = description;
+
+      const duration = document.getElementById('update-duration').value;
+      if (duration) body.duration = parseInt(duration);
+
+      const durationOptions = document.getElementById('update-duration-options').value;
+      if (durationOptions) {
+        body.duration_options = durationOptions.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+      }
+
+      const color = document.getElementById('update-color').value;
+      if (color) body.color = color;
+
+      const locale = document.getElementById('update-locale').value;
+      if (locale) body.locale = locale;
+
+      const locationKind = document.getElementById('update-location-kind').value;
+      if (locationKind) body.locations = [{ kind: locationKind }];
+
+      const res = await fetch(`/update-event-type/${uuid}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const result = await res.json();
+      document.getElementById('update-response').textContent = JSON.stringify(result, null, 2);
+    });
+
+    // Update availability handler
+    document.getElementById('update-availability-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const eventTypeUri = document.getElementById('availability-event-type-uri').value;
+      const timezone = document.getElementById('availability-timezone').value;
+
+      const buildDayRule = (day) => {
+        const from = document.getElementById(`${day}-from`).value;
+        const to = document.getElementById(`${day}-to`).value;
+        if (!from || !to) return null;
+        return { type: "wday", wday: day, intervals: [{ from, to }] };
+      };
+
+      const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      const rules = days.map(buildDayRule).filter(Boolean);
+
+      const payload = {
+        event_type: eventTypeUri,
+        availability_setting: "host",
+        availability_rule: { timezone, rules }
+      };
+
+      const res = await fetch('/update-event-availability', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await res.json();
+      document.getElementById('availability-response').textContent = JSON.stringify(result, null, 2);
+    });
+  </script>
+</body>
+</html>
